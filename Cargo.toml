@@ -1,0 +1,12 @@
+[package]
+name = "gw2img"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+serde = "1.0"
+serde_json = "1.0"
+anyhow = "1.0"
