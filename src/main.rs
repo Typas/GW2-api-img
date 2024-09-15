@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, BTreeMap};
 
 use anyhow::Context;
 use serde_json as sj;
@@ -15,7 +15,7 @@ async fn main() -> anyhow::Result<()> {
     let specialization_full = get_data(&specialization_ids, "specializations").await?;
     let skills_full = get_data(&skill_ids, "skills").await?;
     let traits_full = get_data(&trait_ids, "traits").await?;
-    let buffs = get_buffs(&traits_full)?;
+    let buffs = get_buffs(&traits_full, &skills_full)?;
     let specializations = shrink_specializations(specialization_full)?;
     let skills = shrink_skills(skills_full)?;
     let traits = shrink_traits(traits_full)?;
@@ -82,8 +82,8 @@ fn to_ids(json: sj::Value) -> anyhow::Result<Vec<u64>> {
         .context("fail to convert to ids")
 }
 
-fn get_buffs(json: &sj::Value) -> anyhow::Result<HashMap<String, String>> {
-    let map: Vec<HashMap<&str, &sj::Value>> = json
+fn get_buffs(traits: &sj::Value, skills: &sj::Value) -> anyhow::Result<BTreeMap<String, String>> {
+    let tmap: Vec<BTreeMap<&str, &sj::Value>> = traits
         .as_array()
         .context("input is not array")?
         .iter()
@@ -96,9 +96,7 @@ fn get_buffs(json: &sj::Value) -> anyhow::Result<HashMap<String, String>> {
         })
         .collect();
 
-    let mut result = HashMap::new();
-
-    let shrinked: Vec<_> = map
+    let shrinked_traits: Vec<_> = tmap
         .into_iter()
         .filter(|m| m.get("facts").is_some())
         .map(|m| m.get("facts").unwrap().as_array().unwrap())
@@ -107,7 +105,49 @@ fn get_buffs(json: &sj::Value) -> anyhow::Result<HashMap<String, String>> {
         .filter(|x| x.get("type").is_some_and(|t| t.as_str().unwrap() == "Buff"))
         .collect();
 
-    for buff in shrinked {
+    let smap: Vec<BTreeMap<&str, &sj::Value>> = skills
+        .as_array()
+        .context("input is not array")?
+        .iter()
+        .map(|item| {
+            item.as_object()
+                .expect("an object")
+                .iter()
+                .map(|(k, v)| (k.as_str(), v))
+                .collect()
+        })
+        .collect();
+
+    let shrinked_skills: Vec<_> = smap
+        .into_iter()
+        .filter(|m| m.get("facts").is_some())
+        .map(|m| m.get("facts").unwrap().as_array().unwrap())
+        .flatten()
+        .map(|v| v.as_object().unwrap())
+        .filter(|x| x.get("type").is_some_and(|t| t.as_str().unwrap() == "Buff"))
+        .collect();
+
+    let mut result = BTreeMap::new();
+
+    for buff in shrinked_traits {
+        let s = buff
+            .get("status")
+            .context("cannot find status of a buff")?
+            .as_str()
+            .context("cannot convert buff status to string")?;
+        if result.get(s).is_none() {
+            result.insert(
+                s.to_owned(),
+                buff.get("icon")
+                    .context("cannot find status of a buff")?
+                    .as_str()
+                    .context("cannot convert buff status to string")?
+                    .to_owned(),
+            );
+        }
+    }
+
+    for buff in shrinked_skills {
         let s = buff
             .get("status")
             .context("cannot find status of a buff")?
@@ -207,9 +247,9 @@ fn shrink_specializations(json: sj::Value) -> anyhow::Result<HashMap<i32, (Strin
     Ok(result)
 }
 
-fn buffs_to_markdown(buffs: HashMap<String, String>) -> anyhow::Result<Vec<String>> {
+fn buffs_to_markdown(buffs: BTreeMap<String, String>) -> anyhow::Result<Vec<String>> {
     let mut result = Vec::new();
-    result.push(format!("## Buffs"));
+    result.push(format!("# Buffs"));
     for buff in buffs {
         result.push(format!("[{}]: {}", buff.0, buff.1));
     }
@@ -242,6 +282,7 @@ fn skills_to_markdown(json: sj::Value) -> anyhow::Result<Vec<String>> {
 
     let (mut last_prof, mut last_type) = ("".to_owned(), "".to_owned());
     let mut result = Vec::new();
+    result.push(format!("# Skill"));
     for skill in skills {
         let prof = skill
             .get("professions")
@@ -312,6 +353,7 @@ fn traits_to_markdown(
 
     let (mut last_prof, mut last_spec) = ("".to_owned(), "".to_owned());
     let mut result = Vec::new();
+    result.push(format!("# Traits"));
     for t in traits {
         let prof = t
             .get("profession")
